@@ -5,10 +5,10 @@ use std::{fs::File, io::BufReader, path::PathBuf, thread};
 
 #[derive(clap::Parser)]
 struct Args {
-    // Wikipedia dump file (*.xml.bz2)
+    /// Wikipedia dump file (multistream *.xml.bz2)
     input: PathBuf,
 
-    // SQLite database file
+    /// SQLite database file
     #[arg(long)]
     database: PathBuf,
 }
@@ -16,8 +16,8 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let (regex_tx, regex_rx) = flume::unbounded();
-    let (sqlite_tx, sqlite_rx) = flume::unbounded();
+    let (regex_tx, regex_rx) = flume::bounded(512);
+    let (sqlite_tx, sqlite_rx) = flume::bounded(512);
 
     thread::scope(|s| {
         s.spawn(|| xml_thread(args.input, regex_tx));
@@ -26,9 +26,15 @@ fn main() {
     });
 }
 
-fn xml_thread(xml_bzip_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
-    let bzip2_decoder = bzip2::read::MultiBzDecoder::new(File::open(xml_bzip_file).unwrap());
-    let mut xml_reader = quick_xml::Reader::from_reader(BufReader::new(bzip2_decoder));
+fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
+    // // *.xml.bz2
+    // let file =File::open(xml_bzip_file).unwrap();
+    // let bzip2_decoder = bzip2::read::MultiBzDecoder::new(file);
+    // let bufreader = BufReader::new(bzip2_decoder);
+    // let mut xml_reader = quick_xml::Reader::from_reader(bufreader);
+
+    // *.xml
+    let mut xml_reader = quick_xml::Reader::from_file(xml_file).unwrap();
 
     let mut buffer = Vec::new();
     let mut in_title = false;
@@ -68,6 +74,8 @@ fn xml_thread(xml_bzip_file: PathBuf, regex_tx: flume::Sender<(String, String)>)
         }
         buffer.clear();
     }
+
+    println!("[xml thread] Exiting");
 }
 
 fn regex_thread(
@@ -83,23 +91,26 @@ fn regex_thread(
                 .unwrap();
         }
     }
+
+    println!("[regex thread] Exiting");
 }
 
 fn sqlite_thread(database_file: PathBuf, sqlite_rx: flume::Receiver<(String, String)>) {
     let sqlite = rusqlite::Connection::open(database_file).unwrap();
 
+    println!("[sqlite thread] Creating table");
     sqlite
         .execute_batch(
-            "BEGIN;
+            "
+            BEGIN;
 
             CREATE TABLE IF NOT EXISTS vertices (
                 source TEXT NOT NULL,
-                target TEXT NOT NULL,
+                target TEXT NOT NULL
             ) STRICT;
 
-            CREATE INDEX IF NOT EXISTS index_vertices ON vertices(source, target);
-
-            COMMIT;",
+            COMMIT;
+            ",
         )
         .unwrap();
 
@@ -111,4 +122,19 @@ fn sqlite_thread(database_file: PathBuf, sqlite_rx: flume::Receiver<(String, Str
     for (source, target) in sqlite_rx {
         insert.execute((source.as_str(), target.as_str())).unwrap();
     }
+
+    println!("[sqlite thread] Creating index");
+    sqlite
+        .execute_batch(
+            "
+            BEGIN;
+
+            CREATE INDEX IF NOT EXISTS index_vertices ON vertices(source, target);
+
+            COMMIT;
+            ",
+        )
+        .unwrap();
+
+    println!("[sqlite thread] Exiting");
 }

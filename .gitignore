@@ -2,3 +2,4 @@
 *.sqlite3
 *.sqlite3-*
 *.svg
+cargo-flamegraph.stacks

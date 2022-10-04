@@ -27,14 +27,14 @@ fn main() {
 }
 
 fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
-    // // *.xml.bz2
-    // let file =File::open(xml_bzip_file).unwrap();
-    // let bzip2_decoder = bzip2::read::MultiBzDecoder::new(file);
-    // let bufreader = BufReader::new(bzip2_decoder);
-    // let mut xml_reader = quick_xml::Reader::from_reader(bufreader);
-
     // *.xml
-    let mut xml_reader = quick_xml::Reader::from_file(xml_file).unwrap();
+    // let mut xml_reader = quick_xml::Reader::from_file(xml_file).unwrap();
+
+    // *.xml.bz2
+    let file = File::open(xml_file).unwrap();
+    let bzip2_decoder = bzip2::read::MultiBzDecoder::new(file);
+    let bufreader = BufReader::new(bzip2_decoder);
+    let mut xml_reader = quick_xml::Reader::from_reader(bufreader);
 
     let mut buffer = Vec::new();
     let mut in_title = false;
@@ -43,11 +43,13 @@ fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
 
     loop {
         match xml_reader.read_event_into(&mut buffer) {
-            Err(err) => eprintln!(
-                "Error at position {}: {:?}",
-                xml_reader.buffer_position(),
-                err
-            ),
+            Err(err) => {
+                println!(
+                    "Error at position {}: {:?}",
+                    xml_reader.buffer_position(),
+                    err
+                );
+            }
             Ok(Event::Start(start)) if start.name().into_inner() == b"title" => in_title = true,
             Ok(Event::Start(start)) if start.name().into_inner() == b"text" => in_text = true,
             Ok(Event::Text(text)) if in_title => {
@@ -59,7 +61,7 @@ fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
                     regex_tx.send((title.clone(), text)).unwrap();
                 }
                 None => {
-                    eprintln!(
+                    println!(
                         "Error at position {}: In text without title",
                         xml_reader.buffer_position()
                     );
@@ -84,7 +86,7 @@ fn regex_thread(
 ) {
     let regex = Regex::new(r"(?:\[\[)([^\[\]]+?)(?:\|[^\[\]]*)?(?:\]\])").unwrap();
 
-    while let Ok((title, text)) = regex_rx.recv() {
+    for (title, text) in regex_rx {
         for capture in regex.captures_iter(&text) {
             sqlite_tx
                 .send((title.clone(), capture[1].to_string()))
@@ -118,7 +120,6 @@ fn sqlite_thread(database_file: PathBuf, sqlite_rx: flume::Receiver<(String, Str
         .prepare("INSERT INTO vertices VALUES(?, ?);")
         .unwrap();
 
-    // TODO: Is there any way to insert multiple rows at once?
     for (source, target) in sqlite_rx {
         insert.execute((source.as_str(), target.as_str())).unwrap();
     }

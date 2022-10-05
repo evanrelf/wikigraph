@@ -413,7 +413,6 @@ dependencies = [
  "clap",
  "flume",
  "indicatif",
- "once_cell",
  "quick-xml",
  "regex",
  "rusqlite",

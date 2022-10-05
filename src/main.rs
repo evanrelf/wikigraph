@@ -4,8 +4,8 @@ use regex::Regex;
 use std::{
     fs::File,
     io::BufReader,
-    path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
     time::Duration,
 };
@@ -13,6 +13,8 @@ use std::{
 static PAGE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 static LINK_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+static STOP: AtomicBool = AtomicBool::new(false);
 
 #[derive(clap::Parser)]
 struct Args {
@@ -27,20 +29,25 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let (regex_tx, regex_rx) = flume::bounded(512);
-    let (sqlite_tx, sqlite_rx) = flume::bounded(512);
+    let (regex_tx, regex_rx) = flume::bounded(1024);
+    let (sqlite_tx, sqlite_rx) = flume::bounded(1024);
 
     thread::scope(|s| {
         s.spawn(|| xml_thread(args.input, regex_tx.clone()));
 
+        s.spawn(|| regex_thread(regex_rx.clone(), sqlite_tx.clone()));
+        s.spawn(|| regex_thread(regex_rx.clone(), sqlite_tx.clone()));
+        s.spawn(|| regex_thread(regex_rx.clone(), sqlite_tx.clone()));
         s.spawn(|| regex_thread(regex_rx.clone(), sqlite_tx.clone()));
 
         s.spawn(|| sqlite_thread(args.database, sqlite_rx));
 
         thread::sleep(Duration::new(1, 0));
 
-        s.spawn(|| progress_thread(regex_tx.clone(), sqlite_tx.clone()));
+        progress_thread(regex_tx.clone(), sqlite_tx.clone());
     });
+
+    println!("Done");
 }
 
 fn progress_thread(
@@ -53,6 +60,8 @@ fn progress_thread(
     let sqlite_progress = multi_progress.add(indicatif::ProgressBar::new_spinner());
     let page_progress = multi_progress.add(indicatif::ProgressBar::new_spinner());
     let link_progress = multi_progress.add(indicatif::ProgressBar::new_spinner());
+
+    let stop_file = Path::new("wikigraph-stop");
 
     while !regex_tx.is_disconnected() && !sqlite_tx.is_disconnected() {
         regex_progress.set_message(format!(
@@ -67,19 +76,29 @@ fn progress_thread(
         ));
         page_progress.set_message(format!("{} pages", PAGE_COUNT.load(Ordering::SeqCst),));
         link_progress.set_message(format!("{} links", LINK_COUNT.load(Ordering::SeqCst),));
+
         thread::sleep(Duration::new(1, 0));
+
+        if stop_file.exists() {
+            STOP.fetch_or(true, Ordering::SeqCst);
+            regex_progress.finish();
+            sqlite_progress.finish();
+            page_progress.finish();
+            link_progress.finish();
+            break;
+        }
     }
 }
 
 fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
     // *.xml
-    // let mut xml_reader = quick_xml::Reader::from_file(xml_file).unwrap();
+    let mut xml_reader = quick_xml::Reader::from_file(xml_file).unwrap();
 
     // *.xml.bz2
-    let file = File::open(xml_file).unwrap();
-    let bzip2_decoder = bzip2::read::MultiBzDecoder::new(file);
-    let buf_reader = BufReader::new(bzip2_decoder);
-    let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
+    // let file = File::open(xml_file).unwrap();
+    // let bzip2_decoder = bzip2::read::MultiBzDecoder::new(file);
+    // let buf_reader = BufReader::new(bzip2_decoder);
+    // let mut xml_reader = quick_xml::Reader::from_reader(buf_reader);
 
     let mut buffer = Vec::new();
     let mut in_title = false;
@@ -87,6 +106,11 @@ fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
     let mut in_text = false;
 
     loop {
+        if STOP.load(Ordering::SeqCst) {
+            println!("[xml thread] Stopping");
+            break;
+        }
+
         match xml_reader.read_event_into(&mut buffer) {
             Err(err) => {
                 panic!(
@@ -120,6 +144,7 @@ fn xml_thread(xml_file: PathBuf, regex_tx: flume::Sender<(String, String)>) {
             Ok(Event::Eof) => break,
             _ => (),
         }
+
         buffer.clear();
     }
 
@@ -133,6 +158,11 @@ fn regex_thread(
     let regex = Regex::new(r"(?:\[\[)([^\[\]]+?)(?:\|[^\[\]]*)?(?:\]\])").unwrap();
 
     for (title, text) in regex_rx {
+        if STOP.load(Ordering::SeqCst) {
+            println!("[regex thread] Stopping");
+            break;
+        }
+
         for capture in regex.captures_iter(&text) {
             sqlite_tx
                 .send((title.clone(), capture[1].to_string()))
@@ -166,7 +196,11 @@ fn sqlite_thread(database_file: PathBuf, sqlite_rx: flume::Receiver<(String, Str
         .prepare("INSERT INTO vertices VALUES(?, ?);")
         .unwrap();
 
-    for (source, target) in sqlite_rx {
+    for (source, target) in &sqlite_rx {
+        if STOP.load(Ordering::SeqCst) {
+            println!("[sqlite thread] Stopping");
+            break;
+        }
         insert.execute((source.as_str(), target.as_str())).unwrap();
         LINK_COUNT.fetch_add(1, Ordering::SeqCst);
     }

@@ -2,8 +2,6 @@ use clap::Parser as _;
 use quick_xml::events::Event;
 use regex::Regex;
 use std::{
-    fs::File,
-    io::BufReader,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,

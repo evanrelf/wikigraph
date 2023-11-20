@@ -3,7 +3,10 @@
 
 use anyhow::Context as _;
 use clap::Parser as _;
+use once_cell::sync::Lazy;
 use quick_xml::events::Event;
+use regex::Regex;
+use std::collections::HashSet;
 use std::{fs::File, io::BufReader, path::PathBuf};
 
 #[derive(clap::Parser)]
@@ -138,4 +141,14 @@ fn read_page(xml: &mut Xml) -> anyhow::Result<Option<Page>> {
 
         buffer.clear();
     }
+}
+
+fn links(haystack: &str) -> HashSet<String> {
+    static REGEX: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?:\[\[)([^\[\]]+?)(?:\|[^\[\]]*)?(?:\]\])").unwrap());
+
+    REGEX
+        .captures_iter(haystack)
+        .map(|capture| capture[1].to_string())
+        .collect()
 }

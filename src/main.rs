@@ -21,11 +21,11 @@ fn main() -> anyhow::Result<()> {
 
     let mut count = 0;
 
-    while count < 10 {
-        let page = read_page(&mut xml).context("Failed to read page")?;
-        println!("{page:?}");
+    while let Some(_page) = read_page(&mut xml).context("Failed to read page")? {
         count += 1;
     }
+
+    println!("count: {count}");
 
     Ok(())
 }

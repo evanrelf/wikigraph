@@ -1,5 +1,6 @@
 use anyhow::Context as _;
 use clap::Parser as _;
+use lasso::{Rodeo, Spur};
 use once_cell::sync::Lazy;
 use quick_xml::events::Event;
 use regex::Regex;
@@ -35,14 +36,17 @@ fn main() {
         }
     });
 
-    let mut wiki: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut rodeo = Rodeo::new();
+
+    let mut wiki: HashMap<Spur, HashSet<Spur>> = HashMap::new();
 
     while let Ok(page) = rx.recv() {
-        let links = links(&page.text);
-        if let Some(v) = wiki.get_mut(&page.title) {
+        let title = rodeo.get_or_intern(page.title);
+        let links = links(&page.text).map(|l| rodeo.get_or_intern(l)).collect();
+        if let Some(v) = wiki.get_mut(&title) {
             v.extend(links);
         } else {
-            wiki.insert(page.title, links);
+            wiki.insert(title, links);
         }
     }
 
@@ -159,12 +163,11 @@ fn read_page(xml: &mut Xml) -> anyhow::Result<Option<Page>> {
     }
 }
 
-fn links(haystack: &str) -> HashSet<String> {
+fn links(haystack: &str) -> impl Iterator<Item = &str> {
     static REGEX: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?:\[\[)([^\[\]]+?)(?:\|[^\[\]]*)?(?:\]\])").unwrap());
 
     REGEX
         .captures_iter(haystack)
-        .map(|capture| capture[1].to_string())
-        .collect()
+        .map(|capture| capture.get(1).unwrap().as_str())
 }

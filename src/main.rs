@@ -99,42 +99,40 @@ fn read_page(xml: &mut Xml) -> anyhow::Result<Option<Page>> {
         })
         .context("Failed to read XML event")?;
 
-        match (state, event) {
+        state = match (state, event) {
             (State::Limbo1, Event::Eof) => {
                 return Ok(None);
             }
             (State::Limbo1, Event::Start(data)) if data.name().into_inner() == b"title" => {
-                state = State::TitleStarted;
+                State::TitleStarted
             }
-            (limbo1 @ State::Limbo1, _) => {
-                state = limbo1;
-            }
+            (limbo1 @ State::Limbo1, _) => limbo1,
             (State::TitleStarted, Event::Text(data)) => {
                 let title = data.unescape()?.into_owned();
-                state = State::Title { title };
+                State::Title { title }
             }
             (State::Title { title }, Event::End(data)) if data.name().into_inner() == b"title" => {
-                state = State::Limbo2 { title };
+                State::Limbo2 { title }
             }
             (State::Limbo2 { title }, Event::Start(data))
                 if data.name().into_inner() == b"text" =>
             {
-                state = State::TextStarted { title };
+                State::TextStarted { title }
             }
-            (limbo2 @ State::Limbo2 { .. }, _) => {
-                state = limbo2;
-            }
+            (limbo2 @ State::Limbo2 { .. }, _) => limbo2,
             (State::TextStarted { title }, Event::Text(data)) => {
                 let text = data.unescape()?.into_owned();
-                state = State::Text { title, text };
+                State::Text { title, text }
             }
             (State::Text { title, text }, Event::End(data))
                 if data.name().into_inner() == b"text" =>
             {
                 return Ok(Some(Page { title, text }));
             }
-            (state, event) => anyhow::bail!("Unexpected event `{event:?}` in state `{state:?}`",),
-        }
+            (state, event) => {
+                anyhow::bail!("Unexpected event `{event:?}` in state `{state:?}`",);
+            }
+        };
 
         buffer.clear();
     }

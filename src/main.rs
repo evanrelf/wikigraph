@@ -9,7 +9,6 @@ use std::{
     fs::File,
     io::BufReader,
     path::PathBuf,
-    sync::mpsc,
     thread,
 };
 
@@ -24,7 +23,7 @@ fn main() {
 
     let args = Args::parse();
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = flume::unbounded();
 
     thread::spawn(move || {
         let mut xml = read_xml(&args.input)

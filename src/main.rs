@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
         count += 1;
     }
 
-    println!("count: {count}");
+    println!("{count} pages");
 
     Ok(())
 }
@@ -51,21 +51,21 @@ fn read_xml(path: &PathBuf) -> anyhow::Result<Xml> {
     file_name.make_ascii_lowercase();
 
     if file_name.ends_with("multistream.xml.bz2") {
-        tracing::info!("Reading '{}' as multistream bzip2 XML", path.display());
+        tracing::debug!("Reading '{}' as multistream bzip2 XML", path.display());
         let file = File::open(path)?;
         let bzip2_decoder = bzip2::read::MultiBzDecoder::new(file);
         let buf_reader = BufReader::new(bzip2_decoder);
         let xml_reader = quick_xml::Reader::from_reader(buf_reader);
         Ok(Xml::MultistreamBzip2(xml_reader))
     } else if file_name.ends_with(".xml.bz2") {
-        tracing::info!("Reading '{}' as bzip2 XML", path.display());
+        tracing::debug!("Reading '{}' as bzip2 XML", path.display());
         let file = File::open(path)?;
         let bzip2_decoder = bzip2::read::BzDecoder::new(file);
         let buf_reader = BufReader::new(bzip2_decoder);
         let xml_reader = quick_xml::Reader::from_reader(buf_reader);
         Ok(Xml::Bzip2(xml_reader))
     } else {
-        tracing::info!("Reading '{}' as raw XML", path.display());
+        tracing::debug!("Reading '{}' as raw XML", path.display());
         let xml_reader = quick_xml::Reader::from_file(path)?;
         Ok(Xml::Raw(xml_reader))
     }
@@ -130,7 +130,9 @@ fn read_page(xml: &mut Xml) -> anyhow::Result<Option<Page>> {
                 return Ok(Some(Page { title, text }));
             }
             (state, event) => {
-                anyhow::bail!("Unexpected event `{event:?}` in state `{state:?}`",);
+                anyhow::bail!(
+                    "Unexpected event in current state\nstate: {state:?}\nevent: {event:?}"
+                );
             }
         };
 

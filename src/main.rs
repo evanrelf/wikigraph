@@ -77,17 +77,17 @@ struct Page {
     text: String,
 }
 
-#[derive(Clone, Debug)]
-enum State {
-    Limbo1,
-    TitleStarted,
-    Title { title: String },
-    Limbo2 { title: String },
-    TextStarted { title: String },
-    Text { title: String, text: String },
-}
-
 fn read_page(xml: &mut Xml) -> anyhow::Result<Option<Page>> {
+    #[derive(Debug)]
+    enum State {
+        Limbo1,
+        TitleStarted,
+        Title { title: String },
+        Limbo2 { title: String },
+        TextStarted { title: String },
+        Text { title: String, text: String },
+    }
+
     let mut buffer = Vec::new();
     let mut state = State::Limbo1;
 

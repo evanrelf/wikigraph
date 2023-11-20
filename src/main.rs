@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 use anyhow::Context as _;
 use clap::Parser as _;
 use once_cell::sync::Lazy;
@@ -28,32 +25,28 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    thread::scope(move |s| {
-        s.spawn(move || {
-            let mut xml = read_xml(&args.input)
-                .context("Failed to read XML file")
-                .unwrap();
+    thread::spawn(move || {
+        let mut xml = read_xml(&args.input)
+            .context("Failed to read XML file")
+            .unwrap();
 
-            while let Some(page) = read_page(&mut xml).context("Failed to read page").unwrap() {
-                tx.send(page).unwrap();
-            }
-        });
-
-        s.spawn(move || {
-            let mut wiki: HashMap<String, HashSet<String>> = HashMap::new();
-
-            while let Ok(page) = rx.recv() {
-                let links = links(&page.text);
-                if let Some(v) = wiki.get_mut(&page.title) {
-                    v.extend(links);
-                } else {
-                    wiki.insert(page.title, links);
-                }
-            }
-
-            println!("{} pages", wiki.len());
-        });
+        while let Some(page) = read_page(&mut xml).context("Failed to read page").unwrap() {
+            tx.send(page).unwrap();
+        }
     });
+
+    let mut wiki: HashMap<String, HashSet<String>> = HashMap::new();
+
+    while let Ok(page) = rx.recv() {
+        let links = links(&page.text);
+        if let Some(v) = wiki.get_mut(&page.title) {
+            v.extend(links);
+        } else {
+            wiki.insert(page.title, links);
+        }
+    }
+
+    println!("{} pages", wiki.len());
 }
 
 enum Xml {

@@ -6,8 +6,14 @@ use clap::Parser as _;
 use once_cell::sync::Lazy;
 use quick_xml::events::Event;
 use regex::Regex;
-use std::collections::HashSet;
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::BufReader,
+    path::PathBuf,
+    sync::mpsc,
+    thread,
+};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -15,22 +21,39 @@ struct Args {
     input: PathBuf,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
 
-    let mut xml = read_xml(&args.input).context("Failed to read XML file")?;
+    let (tx, rx) = mpsc::channel();
 
-    let mut count = 0;
+    thread::scope(move |s| {
+        s.spawn(move || {
+            let mut xml = read_xml(&args.input)
+                .context("Failed to read XML file")
+                .unwrap();
 
-    while let Some(_page) = read_page(&mut xml).context("Failed to read page")? {
-        count += 1;
-    }
+            while let Some(page) = read_page(&mut xml).context("Failed to read page").unwrap() {
+                tx.send(page).unwrap();
+            }
+        });
 
-    println!("{count} pages");
+        s.spawn(move || {
+            let mut wiki: HashMap<String, HashSet<String>> = HashMap::new();
 
-    Ok(())
+            while let Ok(page) = rx.recv() {
+                let links = links(&page.text);
+                if let Some(v) = wiki.get_mut(&page.title) {
+                    v.extend(links);
+                } else {
+                    wiki.insert(page.title, links);
+                }
+            }
+
+            println!("{} pages", wiki.len());
+        });
+    });
 }
 
 enum Xml {

@@ -12,6 +12,12 @@ use std::{
     thread,
 };
 
+// QUESTIONS TO ANSWER:
+//
+// - Shortest path from A to B?
+// - Longest path between any two connected pages (not returning to a visited page)?
+// - Which page has the most links?
+
 #[derive(clap::Parser)]
 struct Args {
     /// Wikipedia dump file (multistream `*.xml.bz2`)
